@@ -26,9 +26,9 @@ from PyQt5 import uic
 from PyQt5.QtWidgets import QDialog
 import os
 
+# Load the UI file
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'hedgerow_planner_dialog_base.ui'))
-
 
 class HedgerowPlannerDialog(QDialog, FORM_CLASS):
     def __init__(self, parent=None):

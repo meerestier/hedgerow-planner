@@ -1,5 +1,5 @@
 <RCC>
-    <qresource prefix="/plugins/hedgerow_planner" >
+    <qresource prefix="/plugins/hedgerow_planner">
         <file>icon.png</file>
     </qresource>
 </RCC>
