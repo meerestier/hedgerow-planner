@@ -1,3 +1,31 @@
+"""
+Dieses Skript führt die folgenden Schritte aus:
+
+1. Imports und Funktionen:
+    - Importiert notwendige Module und Funktionen aus QGIS und PyQt.
+    - Definiert die Funktion `calculate_angle`, um den Winkel zwischen zwei Punkten zu berechnen.
+
+2. Generierung der Punkte (generate_points Funktion):
+    - Überprüft, ob die aktive Schicht eine Linienvektorschicht ist.
+    - Erstellt eine neue Punktschicht mit den entsprechenden Attributfeldern (`id`, `type`, `species`, `row`).
+    - Iteriert über die Features der Linienvektorschicht und generiert Punkte entlang der Linien basierend auf festgelegten Abständen (`row_spacing`, `plant_spacing`).
+    - Berechnet die Position der Punkte und weist den Typ `shrub` den äußeren Reihen (erster und letzter) und `unassigned` den inneren Reihen zu.
+    - Fügt die generierten Punkte der Punktschicht hinzu.
+    - Fügt die Punktschicht zum Projekt hinzu.
+
+3. Zuordnung der Arten zu Punkten (attribute_species_to_points Funktion):
+    - Trennt die Arten in `trees` und `shrubs` basierend auf der `species_distribution` Liste.
+    - Berechnet die Anzahl der Punkte pro Art basierend auf den Prozentsätzen.
+    - Erstellt erweiterte Listen von `trees` und `shrubs` basierend auf den berechneten Punktzahlen und mischt sie zufällig.
+    - Kategorisiert die Punkte in `edge_points` (äußere Reihen) und `inner_points` (innere Reihen).
+    - Fügt das `species` Feld zur Punktschicht hinzu, falls es noch nicht vorhanden ist.
+    - Beginnt die Bearbeitung der Punktschicht.
+    - Weist die `shrubs` den äußeren Punkten (`edge_points`) zu.
+    - Weist die `trees` und verbleibenden `shrubs` den inneren Punkten (`inner_points`) zu und mischt sie zufällig.
+    - Beendet die Bearbeitung der Punktschicht und zählt die Anzahl der Punkte für jede Art.
+    - Setzt die Symbologie basierend auf dem Typ (`tree` oder `shrub`) mit unterschiedlichen Farben.
+"""
+
 import math
 import random
 from qgis.core import (QgsProject, QgsVectorLayer, QgsFeature, QgsGeometry, 
