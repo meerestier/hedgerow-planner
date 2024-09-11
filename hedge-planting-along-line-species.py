@@ -79,7 +79,7 @@ def generate_points(rows, row_spacing, plant_spacing):
     iface.messageBar().pushMessage("Success", "Hedgerow points created successfully.", level=0)
     return point_layer
 
-def attribute_species_to_points_with_clusters(point_layer, species_distribution, tree_percentage, shrub_percentage, rows, min_cluster_size=3, max_cluster_size=5):
+def attribute_species_to_points_with_clusters(point_layer, species_distribution, tree_percentage, shrub_percentage, rows, min_cluster_size=3, max_cluster_size=6):
     fields_to_add = [QgsField('species', QVariant.String), QgsField('type', QVariant.String), QgsField('cluster_id', QVariant.Int)]
     point_layer.dataProvider().addAttributes([f for f in fields_to_add if point_layer.fields().indexOf(f.name()) == -1])
     point_layer.updateFields()
@@ -97,71 +97,67 @@ def attribute_species_to_points_with_clusters(point_layer, species_distribution,
     random.shuffle(tree_list)
     random.shuffle(shrub_list)
 
+    point_layer.startEditing()
+
+    # Group points by gatter
     gatter_groups = {}
     for feature in point_layer.getFeatures():
         gatter_id = feature['gatter']
         gatter_groups.setdefault(gatter_id, []).append(feature.id())
 
-    point_layer.startEditing()
-    
-    global_cluster_id = 1
-    tree_count = 0
-    shrub_count = 0
-    
     # Calculate trees per gatter
     gatter_count = len(gatter_groups)
     trees_per_gatter = tree_points_count // gatter_count
     extra_trees = tree_points_count % gatter_count
 
-    def assign_shrub_cluster(points, start_index):
-        nonlocal shrub_count, global_cluster_id
-        cluster_size = min(random.randint(min_cluster_size, max_cluster_size), len(points) - start_index)
-        shrub_species_for_cluster = shrub_list[shrub_count % len(shrub_list)]
-        for i in range(start_index, start_index + cluster_size):
-            feature = point_layer.getFeature(points[i])
-            feature.setAttribute('species', shrub_species_for_cluster)
-            feature.setAttribute('type', 'shrub')
-            feature.setAttribute('cluster_id', global_cluster_id)
-            point_layer.updateFeature(feature)
-            shrub_count += 1
-        global_cluster_id += 1
-        return cluster_size
-
+    tree_count = 0
     for gatter_id, point_ids in gatter_groups.items():
-        points_by_row = {}
-        for pid in point_ids:
-            feature = point_layer.getFeature(pid)
-            row = feature['row']
-            points_by_row.setdefault(row, []).append(pid)
-
-        # Determine number of trees for this gatter
         gatter_tree_count = trees_per_gatter + (1 if extra_trees > 0 else 0)
         extra_trees = max(0, extra_trees - 1)
         
-        # Assign plants row by row
-        for row in range(rows):
-            row_points = points_by_row.get(row, [])
-            random.shuffle(row_points)
-            i = 0
-            while i < len(row_points):
-                if row == 0 or row == rows - 1 or tree_count >= tree_points_count:
-                    # Assign shrubs to outer rows and when tree quota is met
-                    i += assign_shrub_cluster(row_points, i)
-                else:
-                    # Assign trees to inner rows
-                    if gatter_tree_count > 0:
-                        feature = point_layer.getFeature(row_points[i])
-                        tree = tree_list[tree_count % len(tree_list)]
-                        feature.setAttribute('species', tree)
-                        feature.setAttribute('type', 'tree')
-                        feature.setAttribute('cluster_id', 0)
-                        point_layer.updateFeature(feature)
-                        tree_count += 1
-                        gatter_tree_count -= 1
-                        i += 1
-                    else:
-                        # Assign shrubs when tree quota for this gatter is met
-                        i += assign_shrub_cluster(row_points, i)
+        random.shuffle(point_ids)
+        for point_id in point_ids:
+            feature = point_layer.getFeature(point_id)
+            if feature['row'] not in [0, rows - 1] and gatter_tree_count > 0:
+                tree = tree_list[tree_count % len(tree_list)]
+                feature.setAttribute('species', tree)
+                feature.setAttribute('type', 'tree')
+                feature.setAttribute('cluster_id', 0)
+                point_layer.updateFeature(feature)
+                tree_count += 1
+                gatter_tree_count -= 1
+                if tree_count >= tree_points_count:
+                    break
+        if tree_count >= tree_points_count:
+            break
+
+    # Now, place shrub clusters
+    shrub_count = 0
+    cluster_id = 1
+    unassigned_points = []
+
+    for feature in point_layer.getFeatures():
+        if not feature['species']:
+            unassigned_points.append(feature.id())
+
+    while unassigned_points:
+        cluster_size = random.randint(min_cluster_size, max_cluster_size)
+        if len(unassigned_points) < cluster_size:
+            cluster_size = len(unassigned_points)
+
+        cluster = unassigned_points[:cluster_size]
+        shrub_species_for_cluster = shrub_list[shrub_count % len(shrub_list)]
+
+        for point_id in cluster:
+            feature = point_layer.getFeature(point_id)
+            feature.setAttribute('species', shrub_species_for_cluster)
+            feature.setAttribute('type', 'shrub')
+            feature.setAttribute('cluster_id', cluster_id)
+            point_layer.updateFeature(feature)
+            shrub_count += 1
+
+        unassigned_points = unassigned_points[cluster_size:]
+        cluster_id += 1
 
     point_layer.commitChanges()
 
@@ -314,7 +310,7 @@ shrub_percentage = 70
 point_layer = generate_points(rows, row_spacing, plant_spacing)
 
 # Attribute species to points with clustering
-point_layer = attribute_species_to_points_with_clusters(point_layer, species_distribution, tree_percentage, shrub_percentage, rows)
+point_layer = attribute_species_to_points_with_clusters(point_layer, species_distribution, tree_percentage, shrub_percentage, rows, min_cluster_size=3, max_cluster_size=6)
 
 # Create polygons around groups of points and include species counts
 polygon_layer = create_group_polygons(point_layer)
