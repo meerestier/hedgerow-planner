@@ -3,7 +3,6 @@ import random
 from qgis.core import (QgsProject, QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY, QgsFields, QgsField, QgsWkbTypes, QgsMarkerSymbol, QgsCategorizedSymbolRenderer, QgsRendererCategory)
 from qgis.PyQt.QtCore import QVariant
 from qgis.utils import iface
-from datetime import datetime
 
 def calculate_angle(point1, point2):
     """Calculate angle in degrees between two points."""
@@ -238,9 +237,9 @@ def create_species_summary_table_with_percentages(point_layer):
 
     species_count = {}
     for feature in point_layer.getFeatures():
-        species = feature['species']
-        plant_type = feature['type']
-        if species and species.strip():
+        species = feature.attribute('species')
+        plant_type = feature.attribute('type')
+        if species and isinstance(species, str) and species.strip():
             key = (species, plant_type)
             species_count[key] = species_count.get(key, 0) + 1
 
@@ -323,26 +322,18 @@ polygon_layer = create_group_polygons(point_layer)
 # Create a summary table with the total counts of all species and their percentages
 summary_table_layer = create_species_summary_table_with_percentages(point_layer)
 
-# Create a group with timestamp
-timestamp = datetime.now().strftime("%d%m%y-%H-%M")
-group_name = f"version-{timestamp}"
+# Modify the end of your script to use the existing group
+existing_group = iface.activeLayer().parent()
+if existing_group:
+    QgsProject.instance().addMapLayer(summary_table_layer, False)
+    existing_group.addLayer(summary_table_layer)
 
-root = QgsProject.instance().layerTreeRoot()
-group = root.addGroup(group_name)
+    QgsProject.instance().addMapLayer(polygon_layer, False)
+    existing_group.addLayer(polygon_layer)
 
-# Add layers to the group in the desired order
-QgsProject.instance().addMapLayer(summary_table_layer, False)
-summary_tree_layer = group.addLayer(summary_table_layer)
+    QgsProject.instance().addMapLayer(point_layer, False)
+    existing_group.addLayer(point_layer)
+else:
+    iface.messageBar().pushMessage("Error", "Active layer is not in a group.", level=3)
 
-QgsProject.instance().addMapLayer(polygon_layer, False)
-polygon_tree_layer = group.addLayer(polygon_layer)
-
-QgsProject.instance().addMapLayer(point_layer, False)
-point_tree_layer = group.addLayer(point_layer)
-
-# Set visibility
-summary_tree_layer.setItemVisibilityChecked(True)
-polygon_tree_layer.setItemVisibilityChecked(True)
-point_tree_layer.setItemVisibilityChecked(True)
-
-iface.messageBar().pushMessage("Success", f"Hedgerow analysis completed successfully. Layers added to group '{group_name}'.", level=0)
+iface.messageBar().pushMessage("Success", "Hedgerow analysis completed successfully.", level=0)
