@@ -79,104 +79,98 @@ def generate_points(rows, row_spacing, plant_spacing):
     iface.messageBar().pushMessage("Success", "Hedgerow points created successfully.", level=0)
     return point_layer
 
-def attribute_species_to_points(point_layer, species_distribution, tree_percentage, shrub_percentage, rows):
+def attribute_species_to_points_with_clusters(point_layer, species_distribution, tree_percentage, shrub_percentage, rows, min_cluster_size=3, max_cluster_size=5):
     """
-    Attribute species to points based on a distribution table, avoiding edge rows for trees.
+    Attribute species to points with clustering of shrubs, ensuring all points are assigned a species.
+    Each shrub cluster is assigned a unique cluster ID, and plants in the same cluster are of the same species.
     
     :param point_layer: The layer containing the points.
     :param species_distribution: List of dictionaries with species and type.
     :param tree_percentage: Percentage of points to be assigned to trees.
     :param shrub_percentage: Percentage of points to be assigned to shrubs.
     :param rows: Number of rows in the planting scheme.
+    :param min_cluster_size: Minimum number of plants in a cluster (same species).
+    :param max_cluster_size: Maximum number of plants in a cluster (same species).
     """
-    # Extract trees and shrubs from species_distribution
+    # Prüfe und füge die Felder 'species', 'type' und 'cluster_id' hinzu, falls nicht vorhanden
+    fields = point_layer.fields()
+    if fields.indexOf('species') == -1:
+        point_layer.dataProvider().addAttributes([QgsField('species', QVariant.String)])
+    if fields.indexOf('type') == -1:
+        point_layer.dataProvider().addAttributes([QgsField('type', QVariant.String)])
+    if fields.indexOf('cluster_id') == -1:
+        point_layer.dataProvider().addAttributes([QgsField('cluster_id', QVariant.Int)])
+    point_layer.updateFields()
+    
+    # Extrahiere Bäume und Sträucher aus der Verteilung
     tree_species = [species["species"] for species in species_distribution if species["type"] == "tree"]
     shrub_species = [species["species"] for species in species_distribution if species["type"] == "shrub"]
-
-    # Calculate number of points per type based on percentage
+    
+    # Berechne die Anzahl der Punkte pro Typ basierend auf dem Prozentsatz
     total_points = point_layer.featureCount()
     tree_points_count = int(total_points * (tree_percentage / 100))
     shrub_points_count = int(total_points * (shrub_percentage / 100))
-
-    # Expand tree and shrub lists based on the calculated points
-    tree_list = [species for species in tree_species for _ in range(int(tree_points_count / len(tree_species)))]
-    shrub_list = [species for species in shrub_species for _ in range(int(shrub_points_count / len(shrub_species)))]
-
-    # Shuffle species lists to randomly distribute them
+    
+    # Liste der Baum- und Straucharten erstellen
+    tree_list = [species for species in tree_species for _ in range(tree_points_count // len(tree_species))]
+    shrub_list = [species for species in shrub_species for _ in range(shrub_points_count // len(shrub_species))]
+    
+    # Artenlisten mischen für zufällige Verteilung
     random.shuffle(tree_list)
     random.shuffle(shrub_list)
-
-    # Get the point layer and categorize points by row
-    edge_points = []
-    inner_points = []
     
-    for feature in point_layer.getFeatures():
-        row = feature['row']
-        if row == 0 or row == rows - 1:
-            edge_points.append(feature.id())
-        else:
-            inner_points.append(feature.id())
-
-    # Update features with species attributes
+    # Alle Punkte des Layers sammeln
+    all_points = [feature.id() for feature in point_layer.getFeatures()]
+    
+    # Punkte-Cluster erstellen und Arten zuweisen
     point_layer.startEditing()
-
-    # Assign shrubs to edge points
-    for feature_id, species in zip(edge_points, shrub_list[:len(edge_points)]):
-        feature = point_layer.getFeature(feature_id)
-        feature.setAttribute('species', species)
-        feature.setAttribute('type', 'shrub')
-        point_layer.updateFeature(feature)
-
-    # Assign trees and remaining shrubs to inner points
-    all_inner_species = tree_list + shrub_list[len(edge_points):]
-    random.shuffle(all_inner_species)
-
-    for feature_id, species in zip(inner_points, all_inner_species):
-        feature = point_layer.getFeature(feature_id)
-        feature.setAttribute('species', species)
-        feature.setAttribute('type', 'tree' if species in tree_species else 'shrub')
-        point_layer.updateFeature(feature)
-
-    point_layer.commitChanges()
-
-    # Assign random species to points with NULL species
-    random_species = tree_species + shrub_species
-    random.shuffle(random_species)
-
-    point_layer.startEditing()
-    for feature in point_layer.getFeatures():
-        if feature['species'] is None or feature['type'] is None:
-            species = random.choice(random_species)
-            feature.setAttribute('species', species)
-            feature.setAttribute('type', 'tree' if species in tree_species else 'shrub')
+    
+    current_shrub_index = 0
+    cluster_id = 1  # Eindeutige Cluster-ID für jeden Cluster
+    
+    for i in range(0, len(all_points), min_cluster_size):
+        cluster_size = random.randint(min_cluster_size, max_cluster_size)
+        cluster_points = all_points[i:i + cluster_size]
+        
+        # Wähle eine Art für den gesamten Cluster
+        shrub_species_for_cluster = shrub_list[current_shrub_index % len(shrub_list)]
+        
+        for feature_id in cluster_points:
+            feature = point_layer.getFeature(feature_id)
+            feature.setAttribute('species', shrub_species_for_cluster)
+            feature.setAttribute('type', 'shrub')
+            feature.setAttribute('cluster_id', cluster_id)  # Weisen Sie eine Cluster-ID für die Visualisierung zu
             point_layer.updateFeature(feature)
+    
+        current_shrub_index += 1
+        cluster_id += 1  # Inkrementieren der Cluster-ID für die nächste Gruppe
+    
+    # Restliche Punkte zufällig Bäumen zuweisen
+    remaining_points = all_points[current_shrub_index:]
+    random.shuffle(remaining_points)
+    current_tree_index = 0
+    
+    for feature_id in remaining_points:
+        feature = point_layer.getFeature(feature_id)
+        tree = tree_list[current_tree_index % len(tree_list)]  # Zyklus durch Baumarten
+        feature.setAttribute('species', tree)
+        feature.setAttribute('type', 'tree')
+        feature.setAttribute('cluster_id', 0)  # Bäume sind nicht Teil der Strauch-Cluster
+        point_layer.updateFeature(feature)
+        current_tree_index += 1
+    
+    # Änderungen übernehmen, um die zugewiesenen Arten zu speichern
     point_layer.commitChanges()
-
-    # Count the number of each species
-    species_count = {species["species"]: 0 for species in species_distribution}
-    for feature in point_layer.getFeatures():
-        species = feature['species']
-        if species in species_count:
-            species_count[species] += 1
-
-    # Output the species count
-    for species, count in species_count.items():
-        print(f"{species}: {count} Punkte")
     
-    # Set symbology based on type
+    # Symbologie basierend auf der Cluster-ID für Sträucher und einer Standardsymbolik für Bäume festlegen
     categories = []
-    tree_symbol = QgsMarkerSymbol.createSimple({'name': 'circle', 'color': 'green', 'size': '3'})
-    shrub_symbol = QgsMarkerSymbol.createSimple({'name': 'circle', 'color': 'blue', 'size': '3'})
     
-    categories.append(QgsRendererCategory('tree', tree_symbol, 'Tree'))
-    categories.append(QgsRendererCategory('shrub', shrub_symbol, 'Shrub'))
+    # Symbologie für Sträucher basierend auf der Cluster-ID (Farben variieren)
+    for cluster_id in range(1, cluster_id):  # Unterschiedliche Symbole pro Cluster
+        shrub_symbol = QgsMarkerSymbol.createSimple({'name': 'circle', 'color': f'hsl({(cluster_id * 30) % 360}, 100%, 50%)', 'size': '3'})
+        categories.append(QgsRendererCategory(cluster_id, shrub_symbol, f'Cluster {cluster_id}'))
     
-    renderer = QgsCategorizedSymbolRenderer('type', categories)
-    point_layer.setRenderer(renderer)
-
-    iface.messageBar().pushMessage("Success", "Species attributes added to hedgerow points.", level=0)
-
-    return species_count
+    
 
 def create_group_polygons(point_layer):
     """Create polygons around groups of points along each line and calculate metrics."""
@@ -288,8 +282,8 @@ shrub_percentage = 70
 # Call the function to generate points and return the point layer
 point_layer = generate_points(rows, row_spacing, plant_spacing)
 
-# Call the function to attribute species to points and get the species count
-species_count = attribute_species_to_points(point_layer, species_distribution, tree_percentage, shrub_percentage, rows)
+# Call the function to attribute species to points with clustering and get the species count
+species_count = attribute_species_to_points_with_clusters(point_layer, species_distribution, tree_percentage, shrub_percentage, rows)
 
 # Create polygons around groups of points and include species counts
 create_group_polygons(point_layer)
